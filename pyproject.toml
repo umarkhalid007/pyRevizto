@@ -7,7 +7,7 @@ name = "pyRevizto"
 version = "0.1"
 description = "pyRevizto is a library designed specifically for Python developers who work with Revizto, a popular platform for BIM collaboration and issue tracking. By leveraging pyRevizto, developers can streamline their workflows and significantly enhance the capabilities of Revizto through automation."
 readme = "README.md"
-readme-content-type = "text/markdown"
+readme.content-type = "text/markdown"
 authors = [
     { name = "Umar Khalid" }
 ]
