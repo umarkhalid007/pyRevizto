@@ -1,5 +1,9 @@
 # pyRevizto
 
+[![Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python Version](https://img.shields.io/badge/python-3.6%2B-blue.svg)](https://www.python.org/downloads/)
+
 `pyRevizto` is a library designed specifically for Python developers who work with Revizto, a popular platform for BIM collaboration and issue tracking. By leveraging `pyRevizto`, developers can streamline their workflows and significantly enhance the capabilities of Revizto through automation.
 
 ## Features
