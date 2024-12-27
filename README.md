@@ -16,10 +16,10 @@
 
 ## Installation
 
-To install `pyRevizto`, use pip:
+To install `pyrevizto`, use pip:
 
 ```sh
-pip install pyRevizto
+pip install pyrevizto
 ```
 
 ## Usage
@@ -170,3 +170,6 @@ print(filter_options)
 deleted_issues = revizto.get_deleted_issues(project_uuid="your_project_uuid")
 print(deleted_issues)
 ```
+
+---
+Copyright © 2024-2025 by Umar Khalid

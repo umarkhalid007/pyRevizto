@@ -8,12 +8,12 @@ with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
     long_description = "\n" + fh.read()
 
 
-VERSION = '0.5'
+VERSION = '0.7'
 DESCRIPTION = 'pyRevizto is a library designed specifically for Python developers who work with Revizto, a popular platform for BIM collaboration and issue tracking. By leveraging pyRevizto, developers can streamline their workflows and significantly enhance the capabilities of Revizto through automation.'
 
 # Setting up
 setup(
-    name="pyRevizto",
+    name="pyrevizto",
     version=VERSION,
     author="Umar Khalid",
     description=DESCRIPTION,
