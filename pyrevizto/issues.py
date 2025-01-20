@@ -41,7 +41,7 @@ def get_project_issues(
         params["reportSort"] = sort
 
     if additional_fields:
-        params["additionalFields"] = additional_fields
+        params["additionalFields[]"] = additional_fields
 
     response = requests.get(
         url,
