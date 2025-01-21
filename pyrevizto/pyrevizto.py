@@ -231,13 +231,16 @@ class pyRevizto:
         self,
         project_uuid: str,
         page: int = 0,
-        filters: Optional[List[Dict[str, Any]]] = None,
-        sort: Optional[List[str]] = None,
-        additional_fields: Optional[List[str]] = None,
+        always_filters: List[Dict[str, Any]] = None,
+        any_filters: List[Dict[str, Any]] = None,
+        additional_fields: List[str] = None,
+        report_sort: List[Dict[str, str]] = None,
         limit: int = 100,
-    ) -> Any:
+        send_full_issue_data: bool = False,
+        synchronized: str = None,
+        ) -> List[Dict[str, Any]]:  
         return get_project_issues(
-            self, project_uuid, page, filters, sort, additional_fields, limit
+            self, project_uuid, page, always_filters, any_filters, additional_fields, report_sort, limit, send_full_issue_data, synchronized
         )
 
     def add_comment(

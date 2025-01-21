@@ -9,39 +9,58 @@ def get_project_issues(
     auth_client: Any,
     project_uuid: str,
     page: int = 0,
-    filters: Optional[List[Dict[str, Any]]] = None,
-    sort: Optional[List[str]] = None,
-    additional_fields: Optional[List[str]] = None,
+    always_filters: List[Dict[str, Any]] = None,
+    any_filters: List[Dict[str, Any]] = None,
+    additional_fields: List[str] = None,
+    report_sort: List[Dict[str, str]] = None,
     limit: int = 100,
-) -> Dict[str, Any]:
+    send_full_issue_data: bool = False,
+    synchronized: str = None,
+) -> List[Dict[str, Any]]:
     """
-    Get a list of project issues with optional filtering and sorting for a specific page.
+    Fetches a list of issues for a project, with support for filters, sorting, and pagination.
 
-    :param auth_client: Authenticated client instance.
-    :param project_uuid: The UUID of the project.
-    :param page: The page number to retrieve (default is 0).
-    :param filters: A list of filters to apply to the issues.
-    :param sort: A list of sorting parameters.
-    :param additional_fields: A list of additional fields to include in the response.
-    :param limit: The number of issues per page (default is 100).
-    :return: A dictionary containing a list of issues and the total number of pages.
+    Args:
+        auth_client: Authenticated client instance.
+        project_uuid (str): The UUID of the project.
+        page (int) : The page number.
+        always_filters (List[Dict[str, Any]], optional): Filters to always apply.
+        any_filters (List[Dict[str, Any]], optional): Filters to optionally apply.
+        additional_fields (List[str], optional): Additional fields to include in the response.
+        report_sort (List[Dict[str, str]], optional): Sorting parameters.
+        limit (int, optional): Number of issues per page. Default is 100.
+        send_full_issue_data (bool, optional): Whether to fetch full issue data or only changed fields.
+        synchronized (str, optional): Fetch issues created/updated after a specific time (YYYY-MM-DD HH:MM:SS).
+
+    Returns:
+        List[Dict[str, Any]]: A list of all fetched issues.
     """
+    
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/issue-filter/filter"
     headers = {
         "Authorization": f"Bearer {auth_client.access_token}",
         "Content-Type": "application/json",
     }
 
-    params = {"limit": limit, "page": page}
 
-    if filters:
-        params["alwaysFiltersDTO"] = filters
-
-    if sort:
-        params["reportSort"] = sort
+    params = {
+        "limit": limit,
+        "page": page,
+        "sendFullIssueData": send_full_issue_data,
+        "synchronized": synchronized,
+    }
 
     if additional_fields:
         params["additionalFields[]"] = additional_fields
+
+    if always_filters:
+        params["alwaysFiltersDTO[]"] = always_filters
+
+    if any_filters:
+        params["anyFiltersDTO[]"] = any_filters
+
+    if report_sort:
+        params["reportSort[]"] = report_sort
 
     response = requests.get(
         url,
