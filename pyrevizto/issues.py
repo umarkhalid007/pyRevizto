@@ -1,49 +1,48 @@
-import requests
 import json
 import uuid
 import mimetypes
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
+__all__ = ['get_project_issues', 'get_deleted_issues', 'create_issue']
+
+# Default items per page for paginated endpoints
+DEFAULT_PAGE_SIZE = 100
 
 def get_project_issues(
     auth_client: Any,
     project_uuid: str,
     page: int = 0,
-    always_filters: List[Dict[str, Any]] = None,
-    any_filters: List[Dict[str, Any]] = None,
-    additional_fields: List[str] = None,
-    report_sort: List[Dict[str, str]] = None,
-    limit: int = 100,
+    always_filters: Optional[List[Dict[str, Any]]] = None,
+    any_filters: Optional[List[Dict[str, Any]]] = None,
+    additional_fields: Optional[List[str]] = None,
+    report_sort: Optional[List[Dict[str, str]]] = None,
+    limit: int = DEFAULT_PAGE_SIZE,
     send_full_issue_data: bool = False,
-    synchronized: str = None,
-) -> List[Dict[str, Any]]:
+    synchronized: Optional[str] = None,
+) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Fetches a list of issues for a project, with support for filters, sorting, and pagination.
+    Fetch a list of issues for a project, with support for filters, sorting, and pagination.
 
     Args:
-        auth_client: Authenticated client instance.
-        project_uuid (str): The UUID of the project.
-        page (int) : The page number.
-        always_filters (List[Dict[str, Any]], optional): Filters to always apply.
-        any_filters (List[Dict[str, Any]], optional): Filters to optionally apply.
-        additional_fields (List[str], optional): Additional fields to include in the response.
-        report_sort (List[Dict[str, str]], optional): Sorting parameters.
-        limit (int, optional): Number of issues per page. Default is 100.
-        send_full_issue_data (bool, optional): Whether to fetch full issue data or only changed fields.
-        synchronized (str, optional): Fetch issues created/updated after a specific time (YYYY-MM-DD HH:MM:SS).
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+        page: Page number to retrieve. Defaults to 0.
+        always_filters: Filters to always apply.
+        any_filters: Filters to optionally apply.
+        additional_fields: Additional fields to include in the response.
+        report_sort: Sorting parameters.
+        limit: Number of issues per page. Defaults to 100.
+        send_full_issue_data: Whether to fetch full issue data or only changed fields.
+        synchronized: Fetch issues created/updated after a specific time (YYYY-MM-DD HH:MM:SS).
 
     Returns:
-        List[Dict[str, Any]]: A list of all fetched issues.
+        List or dict containing the fetched issues.
+
+    Raises:
+        ApiError: If the API request fails.
     """
-    
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/issue-filter/filter"
-    headers = {
-        "Authorization": f"Bearer {auth_client.access_token}",
-        "Content-Type": "application/json",
-    }
-
-
-    params = {
+    params: Dict[str, Any] = {
         "limit": limit,
         "page": page,
         "sendFullIssueData": send_full_issue_data,
@@ -62,30 +61,13 @@ def get_project_issues(
     if report_sort:
         params["reportSort[]"] = report_sort
 
-    response = requests.get(
-        url,
-        headers=headers,
-        params=params,
-        verify=auth_client.verification_bool,
-        cert=auth_client.certificate,
-    )
-
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-
-    if data["result"] != 0:
-        raise Exception(f"API Error: {data['message']}")
-
-    return data
-
+    return auth_client._request("GET", url, params=params)
 
 def get_deleted_issues(
     auth_client: Any,
     project_uuid: str,
     page: int = 0,
-    limit: int = 100,
+    limit: int = DEFAULT_PAGE_SIZE,
     additional_fields: Optional[List[str]] = None,
     always_filters_dto: Optional[List[Dict[str, Any]]] = None,
     any_filters_dto: Optional[List[Dict[str, Any]]] = None,
@@ -97,28 +79,27 @@ def get_deleted_issues(
     """
     Get a list of deleted issues with optional filtering and sorting for a specific page.
 
-    :param auth_client: Authenticated client instance.
-    :param project_uuid: The UUID of the project.
-    :param page: The page number to retrieve (default is 0).
-    :param limit: The number of issues per page (default is 100).
-    :param additional_fields: A list of additional fields to include in the response.
-    :param always_filters_dto: A list of filters that must always be applied.
-    :param any_filters_dto: A list of filters where any can be applied.
-    :param report_sort: A list of sorting parameters.
-    :param send_full_issue_data: Whether to send full issue data (default is False).
-    :param statuses: A list of statuses to filter by.
-    :param synchronized: A synchronization filter.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+        page: Page number to retrieve. Defaults to 0.
+        limit: Number of issues per page. Defaults to 100.
+        additional_fields: Additional fields to include in the response.
+        always_filters_dto: Filters that must always be applied.
+        any_filters_dto: Filters where any can be applied.
+        report_sort: Sorting parameters.
+        send_full_issue_data: Whether to send full issue data.
+        statuses: List of statuses to filter by.
+        synchronized: Synchronization filter.
 
-    :return:
-        A dictionary containing a list of deleted issues and the total number of pages.
+    Returns:
+        Dict containing the list of deleted issues and pagination info.
+
+    Raises:
+        ApiError: If the API request fails.
     """
-
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/issue-filter/filter_deleted"
-    headers = {
-        "Authorization": f"Bearer {auth_client.access_token}",
-        "Accept": "application/json",
-    }
-    params = {"page": page, "limit": limit, "sendFullIssueData": send_full_issue_data}
+    params: Dict[str, Any] = {"page": page, "limit": limit, "sendFullIssueData": send_full_issue_data}
     if additional_fields:
         params["additionalFields[]"] = additional_fields
     if always_filters_dto:
@@ -132,23 +113,7 @@ def get_deleted_issues(
     if synchronized:
         params["synchronized"] = synchronized
 
-    response = requests.get(
-        url,
-        headers=headers,
-        params=params,
-        verify=auth_client.verification_bool,
-        cert=auth_client.certificate,
-    )
-
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-
-    if data["result"] != 0:
-        raise Exception(data)
-
-    return data
+    return auth_client._request("GET", url, params=params)
 
 
 def create_issue(
@@ -162,62 +127,44 @@ def create_issue(
     """
     Create a new issue in a project.
 
-    :param auth_client: Authenticated client instance.
-    :param preview_file_path: The path to the preview file.
-    :param project_id: The project ID.
-    :param fields_json: The fields for the issue in JSON format.
-    :param clash_test_uuid: The clash test UUID (optional).
-    :param operation_id: A unique string associated with notifications (optional).
-    :return: The JSON response from the API.
-    """
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        preview_file_path: Path to the preview file.
+        project_id: The project ID.
+        fields_json: Dictionary of fields for the issue.
+        clash_test_uuid: Clash test UUID (optional).
+        operation_id: Unique string associated with notifications (optional).
 
+    Returns:
+        Dict with the API response.
+
+    Raises:
+        ApiError: If the API request fails.
+        FileNotFoundError: If preview file does not exist.
+    """
     # API endpoint for creating an issue
     url = f"https://api.{auth_client.region}.revizto.com/v5/issue/add"
 
     # Generate a unique UUID for the issue
     issue_uuid = str(uuid.uuid4())
 
-    # Set up the headers with the bearer token
-    headers = {
-        "Authorization": f"Bearer {auth_client.access_token}",
-        "Accept": "application/json",
-    }
-
     # Read the preview file in binary mode
+    # Using context manager ensures file is properly closed
     with open(preview_file_path, "rb") as file:
-        # Prepare the multipart form-data
-        files = {
-            "preview": (
-                preview_file_path,
-                file,
-                mimetypes.guess_type(preview_file_path)[0],
-            ),
-            "fields": (None, json.dumps(fields_json), "application/json"),
-            "uuid": (None, issue_uuid),
-            "projectId": (None, str(project_id)),
+        # Prepare multipart: use files= for actual file and data= for fields
+        files_payload = {
+            "preview": (preview_file_path, file, mimetypes.guess_type(preview_file_path)[0] or "application/octet-stream"),
+        }
+
+        data_payload: Dict[str, Any] = {
+            "fields": json.dumps(fields_json),
+            "uuid": issue_uuid,
+            "projectId": str(project_id),
         }
 
         if operation_id is not None:
-            files["operationId"] = (None, operation_id)
+            data_payload["operationId"] = operation_id
         if clash_test_uuid is not None:
-            files["clashTestUuid"] = (None, clash_test_uuid)
+            data_payload["clashTestUuid"] = clash_test_uuid
 
-        # Make the POST request to the API endpoint
-        response = requests.post(
-            url,
-            headers=headers,
-            data=files,
-            verify=auth_client.verification_bool,
-            cert=auth_client.certificate,
-        )
-
-    # Check if the request was successful
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-
-    if data["result"] != 0:
-        raise Exception(data)
-
-    return data
+        return auth_client._request("POST", url, data=data_payload, files=files_payload)

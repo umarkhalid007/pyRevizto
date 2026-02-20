@@ -1,31 +1,26 @@
-import requests
+from typing import Any, Dict
 
-def get_stamp_templates(auth_client, project_uuid, page=0):
+__all__ = ['get_stamp_templates']
+
+def get_stamp_templates(
+    auth_client: Any,
+    project_uuid: str,
+    page: int = 0,
+) -> Dict[str, Any]:
     """
     Get the stamp templates and stamp template categories available in the project.
 
-    :param project_uuid: The UUID of the project.
-    :param token: The bearer token for authorization.
-    :param page: The page number (default is 0).
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+        page: Page number for pagination. Defaults to 0.
+
+    Returns:
+        Dict containing the stamp templates and categories.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/issue-preset/list"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Accept': 'application/json'
-    }
-    params = {
-        'page': page
-    }
-
-    response = requests.get(url, headers=headers, params=params, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(data)
-
-    return data
+    params = {'page': page}
+    return auth_client._request("GET", url, params=params)

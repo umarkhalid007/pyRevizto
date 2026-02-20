@@ -1,8 +1,15 @@
 import os
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv, set_key
 from typing import Optional, Union, List, Dict, Any
+import logging
+
+# Module-level logger for debugging and monitoring
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    # Basic configuration only if the application hasn't configured logging
+    logging.basicConfig(level=logging.INFO)
 from .licenses import (
     get_license_members,
     get_current_user_licenses,
@@ -23,15 +30,42 @@ from .users import get_current_user_info
 from .stamps import get_stamp_templates
 from .reports import get_user_reports
 from .sheets import get_project_sheets, get_sheet_history, get_sheet_filter_options
+from .clashes import get_clash_groups, get_clashes, get_clash_tests
 
 
 class TokenError(Exception):
-    """Custom exception for token-related errors."""
+    """Raised when token-related operations fail."""
+    pass
 
+
+class ApiError(Exception):
+    """Raised when API returns an error payload or non-OK status.
+    
+    Attributes:
+        status_code: HTTP status code from the failed request
+        payload: Response body from the API (dict or str)
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        payload: Optional[Union[dict, str]] = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.payload = payload
+
+
+class AuthError(ApiError):
+    """Raised for authentication-related errors (401, invalid tokens, etc)."""
     pass
 
 
 class pyRevizto:
+    # Default request timeout in seconds
+    DEFAULT_TIMEOUT = 30.0
+
     def __init__(
         self,
         region: str,
@@ -45,21 +79,24 @@ class pyRevizto:
         env_path: str = ".env",
         token_validity: timedelta = timedelta(hours=0.5),
         refresh_token_validity: timedelta = timedelta(days=30),
+        timeout: float = DEFAULT_TIMEOUT,
     ):
         """
         Initialize the pyRevizto instance.
 
-        :param region: The region for the Revizto API.
-        :param client_id: The client ID for OAuth2.
-        :param redirect_uri: The redirect URI for OAuth2.
-        :param state: The state parameter for OAuth2.
-        :param scope: The scope parameter for OAuth2.
-        :param verification_bool: Whether to verify SSL certificates.
-        :param certificate: Path to SSL certificate.
-        :param save_token: Whether to save tokens to the environment file.
-        :param env_path: Path to the environment file.
-        :param token_validity: Validity duration for the access token.
-        :param refresh_token_validity: Validity duration for the refresh token.
+        Args:
+            region: The region for the Revizto API (e.g., 'eu', 'us').
+            client_id: The client ID for OAuth2.
+            redirect_uri: The redirect URI for OAuth2.
+            state: The state parameter for OAuth2.
+            scope: The scope parameter for OAuth2.
+            verification_bool: Whether to verify SSL certificates (True/False or path to CA bundle).
+            certificate: Path to client SSL certificate for mTLS.
+            save_token: Whether to save tokens to the environment file.
+            env_path: Path to the .env file for token storage.
+            token_validity: Validity duration for the access token.
+            refresh_token_validity: Validity duration for the refresh token.
+            timeout: Request timeout in seconds. Defaults to 30.0.
         """
         self.region = region
         self.verification_bool = verification_bool
@@ -68,6 +105,7 @@ class pyRevizto:
         self.env_path = env_path
         self.token_validity = token_validity
         self.refresh_token_validity = refresh_token_validity
+        self.timeout = timeout
         self.client_id = client_id
         self.redirect_uri = redirect_uri
         self.state = state
@@ -75,14 +113,16 @@ class pyRevizto:
         self.token_url = f"https://api.{region}.revizto.com/v5/oauth2"
         self.access_token = None
         self.refresh_token = None
-        self.token_expiration = None
-        self.refresh_token_expiration = None
+        self.token_expiration: Optional[datetime] = None
+        self.refresh_token_expiration: Optional[datetime] = None
+        # Use a requests.Session for connection reuse and easier testing
+        self.session = requests.Session()
         if self.save_token:
             self._ensure_env_file_exists()
             load_dotenv(env_path)
             self._update_tokens_from_file()
 
-    def get_tokens(self, access_code: str) -> Dict[str, str]:
+    def get_tokens(self, access_code: str) -> Optional[Dict[str, Any]]:
         if self._is_token_valid():
             return {
                 "access_token": self.access_token,
@@ -93,7 +133,7 @@ class pyRevizto:
         else:
             return self._request_new_tokens(access_code)
 
-    def get_refreshed_token(self) -> Dict[str, str]:
+    def get_refreshed_token(self) -> Optional[Dict[str, Any]]:
         if self._is_token_valid():
             return {
                 "access_token": self.access_token,
@@ -104,7 +144,7 @@ class pyRevizto:
         else:
             raise TokenError("Refresh token is invalid or expired")
 
-    def _request_new_tokens(self, access_code: str) -> Dict[str, str]:
+    def _request_new_tokens(self, access_code: str) -> Optional[Dict[str, Any]]:
         params = {
             "grant_type": "authorization_code",
             "code": access_code,
@@ -115,7 +155,7 @@ class pyRevizto:
         }
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 self.token_url,
                 data=params,
                 verify=self.verification_bool,
@@ -125,7 +165,7 @@ class pyRevizto:
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Failed to request new tokens: {e}")
 
-    def _request_refresh_token(self) -> Dict[str, str]:
+    def _request_refresh_token(self) -> Optional[Dict[str, Any]]:
         params = {
             "grant_type": "refresh_token",
             "refresh_token": self.refresh_token,
@@ -134,7 +174,7 @@ class pyRevizto:
         }
 
         try:
-            response = requests.post(
+            response = self.session.post(
                 self.token_url,
                 data=params,
                 verify=self.verification_bool,
@@ -144,14 +184,37 @@ class pyRevizto:
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Failed to refresh token: {e}")
 
-    def _handle_token_response(self, response: requests.Response) -> Dict[str, str]:
+    def _handle_token_response(self, response: requests.Response) -> Optional[Dict[str, Any]]:
         if response.status_code == 200:
             tokens = response.json()
-            if tokens.get("token_type") == "Bearer":
+            if tokens.get("token_type") == "Bearer" or tokens.get("access_token"):
+                # Set tokens
                 self.access_token = tokens.get("access_token")
                 self.refresh_token = tokens.get("refresh_token")
-                self.refresh_token_expiration = datetime.now()
-                self.token_expiration = datetime.now()
+
+                now = datetime.now(timezone.utc)
+                # access token expiry: prefer expires_in from response
+                expires_in = tokens.get("expires_in")
+                if expires_in is not None:
+                    try:
+                        self.token_expiration = now + timedelta(seconds=int(expires_in))
+                    except Exception:
+                        self.token_expiration = now + self.token_validity
+                else:
+                    # fallback to configured default validity
+                    self.token_expiration = now + self.token_validity
+
+                # refresh token expiry: prefer refresh_expires_in if available
+                refresh_expires_in = tokens.get("refresh_expires_in")
+                if refresh_expires_in is not None:
+                    try:
+                        self.refresh_token_expiration = now + timedelta(seconds=int(refresh_expires_in))
+                    except Exception:
+                        self.refresh_token_expiration = now + self.refresh_token_validity
+                else:
+                    self.refresh_token_expiration = now + self.refresh_token_validity
+
+                # persist if requested
                 self._save_tokens()
                 return tokens
             else:
@@ -172,34 +235,162 @@ class pyRevizto:
             response.raise_for_status()
 
     def _update_tokens_from_file(self) -> None:
+        """Load tokens from environment file if they exist."""
         if os.getenv(f"{self.region}_ACCESS_TOKEN_TIMESTAMP"):
-            self.access_token = os.getenv(f"{self.region}_ACCESS_TOKEN")
-            self.refresh_token = os.getenv(f"{self.region}_REFRESH_TOKEN")
-            self.token_expiration = datetime.fromisoformat(os.getenv(f"{self.region}_ACCESS_TOKEN_TIMESTAMP"))
-            self.refresh_token_expiration = datetime.fromisoformat(os.getenv(f"{self.region}_REFRESH_TOKEN_TIMESTAMP"))
+            try:
+                self.access_token = os.getenv(f"{self.region}_ACCESS_TOKEN")
+                self.refresh_token = os.getenv(f"{self.region}_REFRESH_TOKEN")
+                ts_str = os.getenv(f"{self.region}_ACCESS_TOKEN_TIMESTAMP")
+                rt_str = os.getenv(f"{self.region}_REFRESH_TOKEN_TIMESTAMP")
+                if ts_str:
+                    self.token_expiration = datetime.fromisoformat(ts_str)
+                if rt_str:
+                    self.refresh_token_expiration = datetime.fromisoformat(rt_str)
+                logger.debug(f"Loaded tokens from {self.env_path} for region {self.region}")
+            except Exception as e:
+                # If parsing fails, clear the values so they get refreshed
+                logger.warning(
+                    f"Failed to parse stored tokens from {self.env_path}: {e}. "
+                    "Tokens will be re-fetched."
+                )
+                self.access_token = None
+                self.refresh_token = None
+                self.token_expiration = None
+                self.refresh_token_expiration = None
 
     def _save_tokens(self) -> None:
+        """Save tokens to environment file for persistence."""
         if self.save_token:
-            set_key(self.env_path, f"{self.region}_ACCESS_TOKEN", self.access_token)
-            set_key(self.env_path, f"{self.region}_ACCESS_TOKEN_TIMESTAMP", self.token_expiration.isoformat())
-            set_key(self.env_path, f"{self.region}_REFRESH_TOKEN", self.refresh_token)
-            set_key(self.env_path, f"{self.region}_REFRESH_TOKEN_TIMESTAMP", self.refresh_token_expiration.isoformat())
+            try:
+                set_key(self.env_path, f"{self.region}_ACCESS_TOKEN", self.access_token or "")
+                set_key(
+                    self.env_path,
+                    f"{self.region}_ACCESS_TOKEN_TIMESTAMP",
+                    self.token_expiration.isoformat() if self.token_expiration else "",
+                )
+                set_key(self.env_path, f"{self.region}_REFRESH_TOKEN", self.refresh_token or "")
+                set_key(
+                    self.env_path,
+                    f"{self.region}_REFRESH_TOKEN_TIMESTAMP",
+                    self.refresh_token_expiration.isoformat() if self.refresh_token_expiration else "",
+                )
+                logger.debug(f"Tokens saved to {self.env_path}")
+            except Exception as e:
+                logger.error(f"Failed to save tokens to {self.env_path}: {e}")
 
     def _is_refresh_token_valid(self) -> bool:
         if self.refresh_token_expiration:
-            return (
-                datetime.now() <= self.refresh_token_expiration + self.refresh_token_validity
-            )
+            return datetime.now(timezone.utc) < self.refresh_token_expiration
         return False
 
     def _is_token_valid(self) -> bool:
         if self.token_expiration:
-            return datetime.now() <= self.token_expiration + self.token_validity
+            return datetime.now(timezone.utc) < self.token_expiration
         return False
 
     def _ensure_env_file_exists(self) -> None:
         if not os.path.exists(self.env_path):
             open(self.env_path, "a").close()
+
+    def refresh_tokens(self) -> Optional[Dict[str, Any]]:
+        """Public helper to refresh tokens; kept for backward compatibility."""
+        return self.get_refreshed_token()
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        params: Optional[Dict[str, Any]] = None,
+        json: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        retry_on_401: bool = True,
+        timeout: Optional[float] = None,
+    ) -> Any:
+        """Central request helper.
+
+        Centralizes all HTTP request handling including:
+        - Automatic Authorization header attachment
+        - Automatic token refresh on 401 (once)
+        - JSON parsing and error handling
+        - Timeout configuration
+        - Structured exception raising
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: The request URL
+            params: Query parameters
+            json: JSON body
+            data: Form data
+            files: Files for multipart upload
+            headers: Additional headers
+            retry_on_401: Whether to retry after token refresh on 401
+            timeout: Request timeout in seconds. Uses instance default if None.
+
+        Returns:
+            Parsed JSON response or text
+
+        Raises:
+            ApiError: For HTTP errors or API errors
+            AuthError: For authentication failures
+        """
+        session = getattr(self, "session", requests)
+        timeout = timeout or self.timeout
+
+        headers = headers.copy() if headers else {}
+        if self.access_token:
+            headers.setdefault("Authorization", f"Bearer {self.access_token}")
+
+        try:
+            resp = session.request(
+                method, url, params=params, json=json, data=data, files=files,
+                headers=headers, verify=self.verification_bool, cert=self.certificate,
+                timeout=timeout
+            )
+        except requests.RequestException as e:
+            raise ApiError(f"Network error: {e}")
+
+        if resp.status_code == 401 and retry_on_401:
+            # Try refresh then retry once
+            try:
+                self.get_refreshed_token()
+            except TokenError:
+                raise AuthError("Authentication failed and refresh token is invalid", status_code=401)
+
+            # update header and retry
+            headers["Authorization"] = f"Bearer {self.access_token}"
+            try:
+                resp = session.request(
+                    method, url, params=params, json=json, data=data, files=files,
+                    headers=headers, verify=self.verification_bool, cert=self.certificate,
+                    timeout=timeout
+                )
+            except requests.RequestException as e:
+                raise ApiError(f"Network error after refresh: {e}")
+
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as e:
+            # include response body if available
+            content = None
+            try:
+                content = resp.json()
+            except Exception:
+                content = resp.text
+            raise ApiError(f"HTTP {resp.status_code}: {resp.reason}", status_code=resp.status_code, payload=content)
+
+        # parse JSON if possible
+        try:
+            parsed = resp.json()
+        except Exception:
+            return resp.text
+
+        # If API uses result code, treat non-zero as error
+        if isinstance(parsed, dict) and parsed.get("result") is not None and parsed.get("result") != 0:
+            raise ApiError(parsed.get("message", "API returned an error"), status_code=resp.status_code, payload=parsed)
+
+        return parsed
 
 
     def get_current_user_licenses(self) -> Any:
@@ -231,14 +422,14 @@ class pyRevizto:
         self,
         project_uuid: str,
         page: int = 0,
-        always_filters: List[Dict[str, Any]] = None,
-        any_filters: List[Dict[str, Any]] = None,
-        additional_fields: List[str] = None,
-        report_sort: List[Dict[str, str]] = None,
+        always_filters: Optional[List[Dict[str, Any]]] = None,
+        any_filters: Optional[List[Dict[str, Any]]] = None,
+        additional_fields: Optional[List[str]] = None,
+        report_sort: Optional[List[Dict[str, str]]] = None,
         limit: int = 100,
         send_full_issue_data: bool = False,
-        synchronized: str = None,
-        ) -> List[Dict[str, Any]]:  
+        synchronized: Optional[str] = None,
+    ) -> Any:
         return get_project_issues(
             self, project_uuid, page, always_filters, any_filters, additional_fields, report_sort, limit, send_full_issue_data, synchronized
         )
@@ -408,3 +599,27 @@ class pyRevizto:
             clash_test_uuid,
             operation_id,
         )
+
+    def get_clash_groups(
+        self,
+        project_uuid: str,
+        limit: int = 2000,
+        page: int = 1,
+    ) -> Any:
+        return get_clash_groups(self, project_uuid, limit, page)
+
+    def get_clashes(
+        self,
+        project_uuid: str,
+        limit: int = 2000,
+        page: int = 1,
+    ) -> Any:
+        return get_clashes(self, project_uuid, limit, page)
+
+    def get_clash_tests(
+        self,
+        project_uuid: str,
+        limit: int = 2000,
+        page: int = 1,
+    ) -> Any:
+        return get_clash_tests(self, project_uuid, limit, page)

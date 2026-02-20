@@ -1,75 +1,78 @@
-import requests
+from typing import Any, Dict, Optional, List, Union
 
-def get_current_user_licenses(auth_client):
-    """Fetch the current user's licenses using the provided pyRevizto instance."""
-    if not auth_client.access_token:
-        raise ValueError("Access token is not available.")
+__all__ = [
+    'get_current_user_licenses',
+    'get_license_members',
+    'invite_users_to_license',
+    'assign_license_roles',
+    'remove_license_members',
+]
 
-    url = f"https://api.{auth_client.region}.revizto.com/v5/user/licenses"
-    
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Content-Type': 'application/json'
-    }
-
-    response = requests.get(url, headers=headers, verify=auth_client.verification_bool, cert=auth_client.certificate)
-
-    if response.status_code == 401:  # Token expired
-        auth_client.refresh_tokens()
-        headers['Authorization'] = f"Bearer {auth_client.access_token}"
-        response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return response.text
-    
-def get_license_members(auth_client, license_id):
-    if not auth_client.access_token:
-        raise ValueError("Access token is not available.")
-
-    url = f"https://api.{auth_client.region}.revizto.com/v5/license/{license_id}/team"
-
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Content-Type': 'application/json'
-    }
-
-    response = requests.get(url, headers=headers, verify=auth_client.verification_bool, cert=auth_client.certificate)
-
-    if response.status_code == 200:
-        if response.json().get("result") == -206:  # Token expired
-            auth_client.get_refreshed_token()
-            headers['Authorization'] = f"Bearer {auth_client.access_token}"
-            response = requests.get(url, headers=headers)
-
-        return response.json()
-    else:
-        return response.text
-        
-def invite_users_to_license(auth_client, license_uuid, invite_data, preserve_roles=None, 
-                            make_guests=None, auth_method=None, deactivate=None, operation_id=None):
+def get_current_user_licenses(auth_client: Any) -> Dict[str, Any]:
     """
-    Invite users to a license.
+    Fetch the current user's licenses using the provided pyRevizto instance.
+    
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+    
+    Returns:
+        Dict containing the user's license information.
+    
+    Raises:
+        ApiError: If the API request fails.
+        AuthError: If authentication fails.
+    """
+    url = f"https://api.{auth_client.region}.revizto.com/v5/user/licenses"
+    return auth_client._request("GET", url)
+    
+def get_license_members(auth_client: Any, license_id: str) -> Dict[str, Any]:
+    """
+    Get the list of members for a specific license.
+    
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        license_id: UUID of the license.
+    
+    Returns:
+        Dict containing the list of license members.
+    
+    Raises:
+        ApiError: If the API request fails.
+    """
+    url = f"https://api.{auth_client.region}.revizto.com/v5/license/{license_id}/team"
+    return auth_client._request("GET", url)
+        
+def invite_users_to_license(
+    auth_client: Any,
+    license_uuid: str,
+    invite_data: List[Dict[str, Any]],
+    preserve_roles: Optional[bool] = None,
+    make_guests: Optional[bool] = None,
+    auth_method: Optional[str] = None,
+    deactivate: Optional[bool] = None,
+    operation_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Invite users to a license in bulk.
 
-    :param license_uuid: The UUID of the license.
-    :param token: The bearer token for authorization.
-    :param invite_data: A list of dictionaries, where each dictionary contains user information.
-    :param preserve_roles: Whether to preserve current license roles for existing users (boolean).
-    :param make_guests: Whether to grant 'Guest' role to eligible users (boolean).
-    :param auth_method: The UUID of the authentication method to set for new users (string).
-    :param deactivate: Whether to deactivate the users (boolean).
-    :param operation_id: A unique string associated with notifications (string).
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        license_uuid: UUID of the license.
+        invite_data: List of dictionaries with user information (email, role, firstName, lastName, company).
+        preserve_roles: Whether to preserve current license roles for existing users.
+        make_guests: Whether to grant 'Guest' role to eligible users.
+        auth_method: UUID of the authentication method to set for new users.
+        deactivate: Whether to deactivate the users.
+        operation_id: Unique string associated with notifications.
+
+    Returns:
+        Dict with the API response.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/license/{license_uuid}/invite/bulk"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Content-Type': 'application/json'
-    }
-    #invite_data should be an array
-    payload = {
-        'data': invite_data
-    }
+    payload: Dict[str, Any] = {'data': invite_data}
     
     if preserve_roles is not None:
         payload['preserveRoles'] = preserve_roles
@@ -82,91 +85,68 @@ def invite_users_to_license(auth_client, license_uuid, invite_data, preserve_rol
     if operation_id is not None:
         payload['operationId'] = operation_id
 
-    response = requests.post(url, headers=headers, json=payload, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
+    return auth_client._request("POST", url, json=payload)
 
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(f"API Error: {data['message']}")
-
-    return data
-
-def assign_license_roles(auth_client, license_uuid, member_uuids, role, operation_id=None):
+def assign_license_roles(
+    auth_client: Any,
+    license_uuid: str,
+    member_uuids: List[str],
+    role: int,
+    operation_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Assign a license role to license members.
 
-    :param license_uuid: The UUID of the license.
-    :param token: The bearer token for authorization.
-    :param member_uuids: A list of UUIDs of license members.
-    :param role: The license role to assign (integer: 1-Guest, 2-Collaborator, 3-Content creator, 4-License administrator).
-    :param operation_id: A unique string associated with notifications (optional).
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        license_uuid: UUID of the license.
+        member_uuids: List of UUIDs of license members.
+        role: License role ID (1=Guest, 2=Collaborator, 3=Content creator, 4=Administrator).
+        operation_id: Unique string associated with notifications.
+
+    Returns:
+        Dict with the API response.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/license/{license_uuid}/edit/role/bulk"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-    }
-    
-    payload = {
-        'uuids': member_uuids,
-        'role': role,
-    }
+    payload: Dict[str, Any] = {'uuids': member_uuids, 'role': role}
     
     if operation_id is not None:
         payload['operationId'] = operation_id
 
-    response = requests.post(url, headers=headers, json=payload, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
+    return auth_client._request("POST", url, json=payload)
 
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(f"API Error: {data['message']}")
-
-    return data
-
-def remove_license_members(auth_client, license_uuid, member_uuids, message=None, operation_id=None):
+def remove_license_members(
+    auth_client: Any,
+    license_uuid: str,
+    member_uuids: List[str],
+    message: Optional[str] = None,
+    operation_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Remove license members from a license.
 
-    :param license_uuid: The UUID of the license.
-    :param token: The bearer token for authorization.
-    :param member_uuids: A list of UUIDs of license members to be removed.
-    :param message: The message to be sent to the users removed from the license (optional).
-    :param operation_id: A unique string associated with notifications (optional).
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        license_uuid: UUID of the license.
+        member_uuids: List of UUIDs of license members to be removed.
+        message: Message to send to removed users.
+        operation_id: Unique string associated with notifications.
+
+    Returns:
+        Dict with the API response.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/license/{license_uuid}/remove-member/bulk"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-    }
-    
-    payload = {
-        'uuids': member_uuids
-    }
+    payload: Dict[str, Any] = {'uuids': member_uuids}
     
     if message is not None:
         payload['message'] = message
     if operation_id is not None:
         payload['operationId'] = operation_id
 
-    response = requests.post(url, headers=headers, json=payload, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(f"API Error: {data['message']}")
-
-    return data
+    return auth_client._request("POST", url, json=payload)

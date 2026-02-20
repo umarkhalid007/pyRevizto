@@ -172,4 +172,4 @@ print(deleted_issues)
 ```
 
 ---
-Copyright © 2024-2025 by Umar Khalid
+Copyright © 2024-2026 by Umar Khalid

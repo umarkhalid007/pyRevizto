@@ -1,8 +1,9 @@
-import requests
+import json
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
+__all__ = ['add_comment', 'get_issue_comments']
 
 def add_comment(
     auth_client: Any,
@@ -16,27 +17,26 @@ def add_comment(
     new_watchers: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Adds a comment to an issue on Revizto.
+    Add a comment to an issue on Revizto.
 
-    Parameters:
-        auth_client (Any): Authenticated client instance.
-        project_uuid (str): UUID of the project.
-        issue_uuid (str): UUID of the issue.
-        comment_type (str): Type of the comment (text, file, markup, diff).
-        reporter (str): Email of the reporter.
-        comment_text (Optional[str]): Text of the comment (for text comments).
-        file_content (Optional[bytes]): Binary content of the file (for file and markup comments).
-        old_watchers (Optional[List[str]]): List of old watchers (for diff comments).
-        new_watchers (Optional[List[str]]): List of new watchers (for diff comments).
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+        issue_uuid: UUID of the issue.
+        comment_type: Type of comment (text, file, markup, diff).
+        reporter: Email of the reporter.
+        comment_text: Text of the comment (for text comments).
+        file_content: Binary content of the file (for file and markup comments).
+        old_watchers: List of old watchers (for diff comments).
+        new_watchers: List of new watchers (for diff comments).
 
     Returns:
-        Dict[str, Any]: JSON response from the API.
+        Dict with the API response.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/comment/add"
-    headers = {
-        "Authorization": f"Bearer {auth_client.access_token}",
-        "Content-Type": "multipart/form-data",
-    }
 
     comment_uuid = str(uuid.uuid4())
     created_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -59,62 +59,45 @@ def add_comment(
     elif comment_type == "diff":
         comments[0]["diff"] = {"title": {"old": old_watchers, "new": new_watchers}}
 
-    data = {
+    data: Dict[str, Any] = {
         "project_uuid": project_uuid,
         "issue_uuid": issue_uuid,
         "comments": comments,
     }
 
-    files = {"file_content": file_content} if file_content else None
+    files_payload = None
+    if file_content:
+        # requests will set the correct multipart boundary when using files=
+        files_payload = {f"file_{comment_uuid}": (f"file_{comment_uuid}", file_content)}
 
-    try:
-        response = requests.post(
-            url,
-            headers=headers,
-            data=data,
-            files=files,
-            verify=auth_client.verification_bool,
-            cert=auth_client.certificate,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Failed to add comment: {e}")
-
+    # Use client's centralized request helper which handles auth/refresh/errors
+    # comments must be sent as JSON string in the 'comments' field
+    payload_data = {k: (json.dumps(v) if k == 'comments' else v) for k, v in data.items()}
+    return auth_client._request("POST", url, data=payload_data, files=files_payload)
 
 def get_issue_comments(
-    auth_client: Any, project_id: int, issue_uuid: str, date: str, page: int = 0
+    auth_client: Any,
+    project_id: int,
+    issue_uuid: str,
+    date: str,
+    page: int = 0,
 ) -> Dict[str, Any]:
     """
-    Gets issue comments added on the specified date or later.
+    Get issue comments added on the specified date or later.
 
-    Parameters:
-        auth_client (Any): Authenticated client instance.
-        project_id (int): ID of the project.
-        issue_uuid (str): UUID of the issue.
-        date (str): Date in the format YYYY-MM-DD.
-        page (int): Page number for pagination. Default is 0.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_id: ID of the project.
+        issue_uuid: UUID of the issue.
+        date: Date in format YYYY-MM-DD.
+        page: Page number for pagination. Defaults to 0.
 
     Returns:
-        Dict[str, Any]: JSON response from the API.
+        Dict containing the list of comments.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/issue/{issue_uuid}/comments/date"
-    headers = {
-        "Authorization": f"Bearer {auth_client.access_token}",
-        "Content-Type": "application/json",
-    }
-
-    params = {"project_id": project_id, "date": date, "page": page}
-
-    try:
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            verify=auth_client.verification_bool,
-            cert=auth_client.certificate,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Failed to get issue comments: {e}")
+    params: Dict[str, Any] = {"project_id": project_id, "date": date, "page": page}
+    return auth_client._request("GET", url, params=params)

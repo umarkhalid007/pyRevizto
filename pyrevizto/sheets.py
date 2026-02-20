@@ -1,81 +1,56 @@
-import requests
+from typing import Any, Dict
 
-def get_project_sheets(auth_client, project_uuid):
+__all__ = ['get_project_sheets', 'get_sheet_history', 'get_sheet_filter_options']
+
+def get_project_sheets(auth_client: Any, project_uuid: str) -> Dict[str, Any]:
     """
     Get the list of project sheets.
 
-    :param project_uuid: The UUID of the project.
-    :param token: The bearer token for authorization.
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+
+    Returns:
+        Dict containing the list of project sheets.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/sheet/list"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Accept': 'application/json'
-    }
+    return auth_client._request("GET", url)
 
-    response = requests.get(url, headers=headers, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(data)
-
-    return data
-
-def get_sheet_history(auth_client, project_uuid, sheet_uuid):
+def get_sheet_history(auth_client: Any, project_uuid: str, sheet_uuid: str) -> Dict[str, Any]:
     """
     Get a sheet's version history.
 
-    :param project_uuid: The UUID of the project.
-    :param sheet_uuid: The UUID of the sheet.
-    :param token: The bearer token for authorization.
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+        sheet_uuid: UUID of the sheet.
+
+    Returns:
+        Dict containing the sheet version history.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/sheet/{sheet_uuid}/history"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Accept': 'application/json'
-    }
+    return auth_client._request("GET", url)
 
-    response = requests.get(url, headers=headers, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(data)
-
-    return data
-
-def get_sheet_filter_options(auth_client, project_uuid):
+def get_sheet_filter_options(auth_client: Any, project_uuid: str) -> Dict[str, Any]:
     """
     Get the list of sheet filter options.
 
-    :param project_uuid: The UUID of the project.
-    :param token: The bearer token for authorization.
-    :return: A JSON object with the response data.
+    Args:
+        auth_client: Authenticated pyRevizto instance.
+        project_uuid: UUID of the project.
+
+    Returns:
+        Dict containing the available sheet filter options.
+
+    Raises:
+        ApiError: If the API request fails.
     """
     url = f"https://api.{auth_client.region}.revizto.com/v5/project/{project_uuid}/sheet/field-variants"
-    headers = {
-        'Authorization': f'Bearer {auth_client.access_token}',
-        'Accept': 'application/json'
-    }
-
-    response = requests.get(url, headers=headers, verify=auth_client.verification_bool, cert=auth_client.certificate)
-    
-    if response.status_code != 200:
-        response.raise_for_status()
-
-    data = response.json()
-    
-    if data['result'] != 0:
-        raise Exception(data)
-
-    return data
+    return auth_client._request("GET", url)
 
